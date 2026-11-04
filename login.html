@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>登录 - StockHis 个人股票交易记录和分析系统</title>
+  <link rel="stylesheet" href="css/style.css">
+  <!-- Cloudflare Turnstile API Script (loaded dynamically but fallback script defined) -->
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onloadTurnstileCallback" async defer></script>
+  <style>
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      width: 100vw;
+    }
+    
+    .login-container {
+      width: 400px;
+      max-width: 90%;
+    }
+    
+    .login-header {
+      text-align: center;
+      margin-bottom: 25px;
+    }
+    
+    .login-header h2 {
+      font-family: var(--font-title);
+      font-size: 26px;
+      font-weight: 700;
+      margin-top: 10px;
+    }
+    
+    .login-header p {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+    
+    .login-logo {
+      width: 48px;
+      height: 48px;
+      margin: 0 auto;
+      background: linear-gradient(135deg, var(--color-accent), #d500f9);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-title);
+      font-weight: 800;
+      font-size: 24px;
+      box-shadow: var(--shadow-glow);
+    }
+    
+    .form-submit-btn {
+      width: 100%;
+      justify-content: center;
+      padding: 12px;
+      font-size: 15px;
+      margin-top: 15px;
+    }
+    
+    .alert-box {
+      display: none;
+      background-color: rgba(255, 23, 68, 0.1);
+      border: 1px solid rgba(255, 23, 68, 0.3);
+      color: var(--color-down);
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 12.5px;
+      margin-bottom: 20px;
+      line-height: 1.5;
+    }
+    
+    .turnstile-wrapper {
+      display: flex;
+      justify-content: center;
+      margin: 15px 0 10px 0;
+      min-height: 65px;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-container">
+    <div class="glass-card">
+      <div class="login-header">
+        <div class="login-logo">S</div>
+        <h2>StockHis 交易系统</h2>
+        <p>个人股票交易记录和分析平台</p>
+      </div>
+      
+      <div id="error-alert" class="alert-box"></div>
+      
+      <form id="login-form">
+        <div class="form-group" style="margin-bottom: 16px;">
+          <label for="username">用户名</label>
+          <input type="text" id="username" placeholder="请输入用户名" required>
+        </div>
+        
+        <div class="form-group" style="margin-bottom: 16px;">
+          <label for="password">密码</label>
+          <input type="password" id="password" placeholder="请输入密码" required>
+        </div>
+        
+        <!-- Cloudflare Turnstile Container -->
+        <div class="turnstile-wrapper">
+          <div id="my-turnstile"></div>
+        </div>
+        
+        <button type="submit" id="login-btn" class="btn form-submit-btn">登录系统</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="js/api-config.js"></script>
+  <script src="js/login.js"></script>
+</body>
+</html>

@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StockHis - 个人股票交易记录和分析系统 (Cloudflare Pages版)</title>
+  <link rel="stylesheet" href="css/style.css">
+  <!-- Chart.js Local Offline Bundle (Zero External Network Delay) -->
+  <script src="js/chart.min.js"></script>
+  <style>
+    .sidebar-user-section {
+      margin-top: 15px;
+      padding-top: 15px;
+      border-top: 1px solid var(--glass-border);
+    }
+  </style>
+</head>
+<body>
+  <!-- Global loading screen to prevent flash of content -->
+  <div id="auth-loading" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--bg-main); z-index: 9999; display: flex; align-items: center; justify-content: center; font-family: var(--font-title); font-size: 15px; color: var(--text-muted); transition: opacity 0.3s ease, visibility 0.3s ease;">
+    <div style="text-align: center; display: flex; flex-direction: column; align-items: center; gap: 12px;">
+      <div style="width: 32px; height: 32px; border: 3px solid rgba(41, 121, 255, 0.2); border-top-color: var(--color-accent); border-radius: 50%; animation: spinLoader 0.8s linear infinite;"></div>
+      <span style="letter-spacing: 0.5px;">正在验证身份...</span>
+    </div>
+  </div>
+  <style>
+    @keyframes spinLoader {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+
+  <div class="app-container">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="logo-section">
+        <div class="logo-icon">S</div>
+        <h1 class="logo-title">StockHis</h1>
+      </div>
+      
+      <ul class="sidebar-nav">
+        <li class="active" data-tab="dashboard">
+          <span>📊</span> 资产概览
+        </li>
+        <li data-tab="holdings">
+          <span>💼</span> 我的持仓
+        </li>
+        <li data-tab="trades">
+          <span>📝</span> 交易记录
+        </li>
+        <li data-tab="statistics">
+          <span>📈</span> 区间统计
+        </li>
+        <li data-tab="settings">
+          <span>⚙️</span> 系统设置
+        </li>
+      </ul>
+      
+      <div class="sidebar-footer">
+        <span class="status-label">行情服务器状态</span>
+        <div class="status-value" style="margin-bottom: 10px;">
+          <span id="status-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background-color:#00e676;"></span>
+          <span id="last-update-time">正在连接行情...</span>
+        </div>
+        <button id="refresh-prices" class="btn btn-secondary" style="width: 100%; padding: 6px 12px; font-size: 11px;">
+          🔄 刷新行情价格
+        </button>
+
+        <!-- Cloudflare Authenticated User Section -->
+        <div class="sidebar-user-section">
+          <span class="status-label">当前账户</span>
+          <div class="status-value" style="margin-top: 4px; font-weight: 600; color: white;">
+            👤 <span id="current-user-display">加载中...</span>
+          </div>
+          <button id="logout-btn" class="btn btn-secondary" style="width: 100%; padding: 6px 12px; font-size: 11px; margin-top: 8px; border-color: rgba(255, 23, 68, 0.25); color: var(--color-down);">
+            🚪 退出登录
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      
+      <!-- Security Warning Banner (displays only when using default admin pwd) -->
+      <div id="default-creds-warning" class="glass-card" style="display: none; background-color: rgba(255, 179, 0, 0.08); border: 1px solid rgba(255, 179, 0, 0.25); color: #ffb300; padding: 12px 20px; border-radius: 12px; margin-bottom: 20px; font-size: 13px; line-height: 1.5;">
+        ⚠️ <strong>安全警示：</strong> 您正在使用系统默认账密（admin / admin123）运行。请立即在 Cloudflare KV 中为键 <code>user:admin</code> 配置自定义密码，以防止他人越权访问。
+      </div>
+
+      <!-- Panel 1: Dashboard -->
+      <section id="dashboard-panel" class="panel active">
+        <div class="panel-header">
+          <h2 class="panel-title">资产概览</h2>
+          <button id="add-trade-btn" class="btn">➕ 录入交易记录</button>
+        </div>
+        
+        <!-- Summary Dashboard Cards -->
+        <div class="summary-grid">
+          <div class="glass-card">
+            <div class="card-title">当前持仓总市值</div>
+            <div id="total-assets-val" class="card-value">¥0.00</div>
+            <div class="card-subtext">基于最新实时行情价格计算</div>
+          </div>
+          
+          <div class="glass-card">
+            <div class="card-title">当前持仓浮动盈亏</div>
+            <div id="floating-profit-val" class="card-value">¥0.00</div>
+            <div id="floating-profit-percent" class="card-value" style="font-size: 16px; margin-top: -2px;">+0.00%</div>
+          </div>
+          
+          <div class="glass-card">
+            <div class="card-title">累计已实现盈亏</div>
+            <div id="realized-profit-val" class="card-value">¥0.00</div>
+            <div class="card-subtext">不含当前未卖出持仓的盈亏</div>
+          </div>
+          
+          <div class="glass-card">
+            <div class="card-title">累计交易手续费</div>
+            <div id="total-fees-val" class="card-value">¥0.00</div>
+            <div class="card-subtext">包含印花税、过户费及佣金</div>
+          </div>
+        </div>
+        
+        <!-- Charts Grid -->
+        <div class="charts-grid">
+          <div class="glass-card chart-card">
+            <div class="card-title">累计净收益趋势走势</div>
+            <div class="chart-container">
+              <canvas id="profit-chart"></canvas>
+            </div>
+          </div>
+          
+          <div class="glass-card chart-card">
+            <div class="card-title">持仓资产比重分布</div>
+            <div class="chart-container" style="padding: 10px;">
+              <div id="holdings-chart-placeholder" class="chart-placeholder">
+                暂无持仓分布，请先录入买入记录
+              </div>
+              <canvas id="holdings-chart" style="display: none;"></canvas>
+            </div>
+          </div>
+        </div>
+      </section>
+      
+      <!-- Panel 2: Holdings -->
+      <section id="holdings-panel" class="panel">
+        <div class="panel-header">
+          <h2 class="panel-title">我的持仓分析</h2>
+        </div>
+        
+        <div class="glass-card">
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>股票名称 / 代码</th>
+                  <th>持仓股数</th>
+                  <th>买入均价</th>
+                  <th>持仓成本</th>
+                  <th>实时现价 <span style="font-size: 10px; text-transform: none; color: var(--text-dark);">(双击修改)</span></th>
+                  <th>当前市值</th>
+                  <th>今日涨跌</th>
+                  <th>浮动盈亏</th>
+                  <th>浮动盈亏率</th>
+                  <th title="摊薄均价 = (累计买入金额 - 累计卖出金额) / 当前持仓数">摊薄保本价 ℹ️</th>
+                </tr>
+              </thead>
+              <tbody id="holdings-table-body">
+                <!-- Loaded dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+      
+      <!-- Panel 3: Trades -->
+      <section id="trades-panel" class="panel">
+        <div class="panel-header">
+          <h2 class="panel-title">交易流水记录</h2>
+        </div>
+        
+        <div class="glass-card">
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>成交时间</th>
+                  <th>股票名称 / 代码</th>
+                  <th>交易类型</th>
+                  <th>成交价格</th>
+                  <th>成交数量</th>
+                  <th>成交金额</th>
+                  <th>手续杂费</th>
+                  <th>备注说明</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="trades-table-body">
+                <!-- Loaded dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+      
+      <!-- Panel 4: Statistics (Period Analysis) -->
+      <section id="statistics-panel" class="panel">
+        <div class="panel-header">
+          <h2 class="panel-title">区间收益与绩效统计</h2>
+        </div>
+        
+        <!-- Range Filter Controls -->
+        <div class="glass-card" style="margin-bottom: 20px; padding: 15px 24px;">
+          <div class="filter-row">
+            <div class="filter-input-group">
+              <label for="start-date-filter">开始时间:</label>
+              <input type="date" id="start-date-filter">
+            </div>
+            <div class="filter-input-group">
+              <label for="end-date-filter">结束时间:</label>
+              <input type="date" id="end-date-filter">
+            </div>
+            <button id="apply-filter" class="btn" style="padding: 8px 16px;">筛选分析</button>
+            <button id="reset-filter" class="btn btn-secondary" style="padding: 8px 16px;">重置区间</button>
+          </div>
+        </div>
+
+        <!-- Period Statistics Display Cards -->
+        <div class="period-stats-grid">
+          <div class="glass-card" style="padding: 16px 20px;">
+            <div class="card-title">区间已实现盈亏</div>
+            <div id="period-realized-val" class="card-value" style="font-size: 22px;">¥0.00</div>
+          </div>
+          <div class="glass-card" style="padding: 16px 20px;">
+            <div class="card-title">区间交易总额</div>
+            <div id="period-volume-val" class="card-value" style="font-size: 22px;">¥0.00</div>
+          </div>
+          <div class="glass-card" style="padding: 16px 20px;">
+            <div class="card-title">区间交易税费</div>
+            <div id="period-fees-val" class="card-value" style="font-size: 22px;">¥0.00</div>
+          </div>
+          <div class="glass-card" style="padding: 16px 20px;">
+            <div class="card-title">成交总笔数</div>
+            <div id="period-count-val" class="card-value" style="font-size: 22px;">0 笔</div>
+          </div>
+        </div>
+
+        <!-- Realized Profits by closed Stock -->
+        <div class="glass-card">
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>股票名称 / 代码</th>
+                  <th>累计买入数量</th>
+                  <th>累计买入投入(含费)</th>
+                  <th>累计卖出变现(扣费)</th>
+                  <th>平均进仓均价</th>
+                  <th>平均出仓均价</th>
+                  <th>已实现净收益</th>
+                </tr>
+              </thead>
+              <tbody id="realized-table-body">
+                <!-- Loaded dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+      
+      <!-- Panel 5: Settings -->
+      <section id="settings-panel" class="panel">
+        <div class="panel-header">
+          <h2 class="panel-title">系统设置与备份</h2>
+        </div>
+        
+        <div class="glass-card settings-section">
+          <h3>数据备份与还原</h3>
+          
+          <div class="settings-card">
+            <div class="settings-info">
+              <span class="settings-title">导出交易数据</span>
+              <span class="settings-desc">将您在 Cloudflare KV 中存储的交易数据导出为 JSON 备份文件，或者导出为 CSV 电子表格。</span>
+            </div>
+            <div class="settings-actions">
+              <button id="export-json" class="btn btn-secondary">💾 导出 JSON 备份</button>
+              <button id="export-csv" class="btn btn-secondary">📊 导出 CSV 表格</button>
+            </div>
+          </div>
+          
+          <div class="settings-card">
+            <div class="settings-info">
+              <span class="settings-title">导入交易数据</span>
+              <span class="settings-desc">选择之前导出的 JSON 备份文件或包含正确字段头部的 CSV 交易表，上传至您的 KV 云数据库中。</span>
+            </div>
+            <div class="settings-actions">
+              <input type="file" id="import-file" class="hidden-file-input" accept=".json,.csv">
+              <button id="import-btn" class="btn">📥 导入备份文件 (.json / .csv)</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="glass-card settings-section">
+          <h3>Cloudflare KV 部署说明</h3>
+          <div style="color: var(--text-muted); font-size: 13px; line-height: 1.6; display: flex; flex-direction: column; gap: 10px;">
+            <p><strong>1. 数据物理隔离：</strong><br>
+            您的数据独立存储在您绑定的 Cloudflare Workers KV 中，键名为 <code>trades:${username}</code>。支持多个账号配置。
+            </p>
+            <p><strong>2. 账号管理与配置：</strong><br>
+            您需要在绑定的 KV 空间中手动创建您的登录账户。
+            键名格式：<code>user:您的用户名</code><br>
+            值格式：<code>{"password": "您的密码"}</code> 或者直接输入密码明文。系统在接收到您的登录请求后会自动读取并完成匹配。
+            </p>
+            <p><strong>3. 安全与防暴力破解：</strong><br>
+            本系统配置了每 IP 限流机制。15 分钟内连续输入错误密码达到 5 次，将触发 IP 锁禁 15 分钟。同时集成了 Cloudflare Turnstile 人机检测（需在 Cloudflare Pages 设置中配置环境变量 <code>TURNSTILE_SITE_KEY</code> 和 <code>TURNSTILE_SECRET_KEY</code>）。
+            </p>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Trade Form Modal -->
+  <div id="trade-modal" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modal-title">新增交易记录</h3>
+        <button id="close-modal" class="close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="trade-form">
+          <input type="hidden" id="trade-id">
+          
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="trade-code">股票代码 *</label>
+              <input type="text" id="trade-code" placeholder="如: sh600519 / AAPL" required>
+            </div>
+            
+            <div class="form-group">
+              <label for="trade-name">股票名称 *</label>
+              <input type="text" id="trade-name" placeholder="如: 贵州茅台 / 苹果" required>
+            </div>
+            
+            <div class="form-group">
+              <label for="trade-type">交易类型 *</label>
+              <select id="trade-type" required>
+                <option value="BUY" selected>买入 (BUY)</option>
+                <option value="SELL">卖出 (SELL)</option>
+              </select>
+            </div>
+            
+            <div class="form-group">
+              <label for="trade-date">交易时间 *</label>
+              <input type="datetime-local" id="trade-date" required>
+            </div>
+            
+            <div class="form-group">
+              <label for="trade-price">成交价格 (单股) *</label>
+              <input type="number" id="trade-price" step="0.0001" min="0.0001" placeholder="成交单价" required>
+            </div>
+            
+            <div class="form-group">
+              <label for="trade-qty">成交数量 (股) *</label>
+              <input type="number" id="trade-qty" step="0.0001" min="0.0001" placeholder="成交股数" required>
+            </div>
+            
+            <div class="form-group">
+              <label for="trade-fee">交易税费/佣金 *</label>
+              <input type="number" id="trade-fee" step="0.01" min="0" placeholder="A股自动估算，可手动修改" required>
+            </div>
+            
+            <div class="form-group full-width">
+              <label for="trade-notes">交易备注</label>
+              <textarea id="trade-notes" rows="2" placeholder="输入这笔交易的备忘，如：二次加仓 / 分红再投资"></textarea>
+            </div>
+
+            <!-- Match Lots Section (visible only when type is SELL) -->
+            <div id="sell-matching-section" class="form-group full-width" style="display: none; margin-top: 15px; border-top: 1px solid var(--glass-border); padding-top: 15px;">
+              <label style="margin-bottom: 8px; display: block; font-weight: 600; font-size: 13px;">指定卖出对应的买入批次 (非必选)</label>
+              <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px;">
+                💡 勾选对应买入批次并输入分配的卖出股数。留空或不选将默认按先进先出 (FIFO) 规则自动匹配。
+              </div>
+              <div class="table-container" style="max-height: 180px; overflow-y: auto; background: rgba(0,0,0,0.15); border-radius: 8px; margin-bottom: 10px;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 11px;" id="sell-matching-table">
+                  <thead>
+                    <tr style="border-bottom: 1px solid var(--glass-border); text-align: left; background: rgba(255,255,255,0.05);">
+                      <th style="padding: 6px 8px; width: 40px;">选择</th>
+                      <th style="padding: 6px 8px;">买入日期</th>
+                      <th style="padding: 6px 8px;">买入价格</th>
+                      <th style="padding: 6px 8px;">剩余可用股数</th>
+                      <th style="padding: 6px 8px; width: 100px;">本次卖出股数</th>
+                    </tr>
+                  </thead>
+                  <tbody id="sell-matching-body">
+                    <!-- Dynamic Rows -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          
+          <div class="form-actions">
+            <button type="button" class="btn btn-secondary" onclick="closeModal()">取消</button>
+            <button type="submit" class="btn">确认保存</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- JS Scripts -->
+  <script src="js/calculations.js"></script>
+  <script src="js/charts.js"></script>
+  <!-- Load specialized cloudflare app controller -->
+  <script src="js/api-config.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
